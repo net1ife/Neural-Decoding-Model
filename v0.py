@@ -2,64 +2,67 @@ import numpy as np
 import mne
 from sklearn import svm
 from sklearn.model_selection import train_test_split
+from joblib import dump, load
+import os
 
-# Signal Acquisition
-def acquire_signal(file):
-    # Load the EEG data from a file
-    raw = mne.io.read_raw_fif(file, preload=True)
-    return raw
+def acquire_signal(file_name):
+    """
+    This function reads the EEG data from a file.
+    """
+    if not os.path.isfile(file_name):
+        raise FileNotFoundError(f"{file_name} not found.")
+        
+    raw_data = mne.io.read_raw_fif(file_name, preload=True)
+    return raw_data
 
-# Signal Preprocessing
-def preprocess_signal(raw):
-    # Apply bandpass filtering
-    raw.filter(l_freq=1, h_freq=40)
+def preprocess_signal(raw_data):
+    """
+    This function applies bandpass filtering and removes EOG artifacts.
+    """
+    raw_data.filter(l_freq=1, h_freq=40)
 
-    # Remove EOG artifacts
-    eog_events = mne.preprocessing.find_eog_events(raw)
-    n_bads, scores = mne.preprocessing.ica_find_bads_eog(raw, eog_events)
-    raw = mne.preprocessing.ICA(n_components=0.95).fit(raw).apply(raw, exclude=n_bads)
+    eog_events = mne.preprocessing.find_eog_events(raw_data)
+    n_bads, scores = mne.preprocessing.ica_find_bads_eog(raw_data, eog_events)
+    preprocessed_data = mne.preprocessing.ICA(n_components=0.95).fit(raw_data).apply(raw_data, exclude=n_bads)
 
-    return raw
+    return preprocessed_data
 
-# Feature Extraction
-def extract_features(raw):
-    # Compute the power spectral density
-    psds, freqs = mne.time_frequency.psd_multitaper(raw, fmin=1, fmax=40)
-    return psds
+def extract_features(preprocessed_data):
+    """
+    This function computes the power spectral density as features.
+    """
+    power_spectral_density, frequencies = mne.time_frequency.psd_multitaper(preprocessed_data, fmin=1, fmax=40)
+    return power_spectral_density
 
-# Classification
 def train_classifier(features, labels):
-    # Use Support Vector Machine as the classifier
-    clf = svm.SVC()
+    """
+    This function trains a Support Vector Machine classifier.
+    """
+    classifier = svm.SVC()
+    classifier.fit(features, labels)
+    return classifier
 
-    # Train the classifier
-    clf.fit(features, labels)
+def main(file_name='sample_data.fif', test_size=0.2, low_freq=1, high_freq=40):
+    """
+    This function is the main function that ties all the processes together.
+    """
+    raw_data = acquire_signal(file_name)
+    preprocessed_data = preprocess_signal(raw_data)
 
-    return clf
+    features = extract_features(preprocessed_data)
 
-# Main Program
-def main():
-    # Acquire and preprocess the signal
-    raw = acquire_signal('sample_data.fif')
-    raw = preprocess_signal(raw)
-
-    # Extract features
-    features = extract_features(raw)
-
-    # Assume we have labels (This part is much more complex in a real scenario)
     labels = np.random.randint(2, size=len(features))
 
-    # Split the data into training set and test set
-    X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=0.2)
+    X_train, X_test, y_train, y_test = train_test_split(features, labels, test_size=test_size)
 
-    # Train the classifier
-    clf = train_classifier(X_train, y_train)
+    classifier = train_classifier(X_train, y_train)
 
-    # Test the classifier
-    score = clf.score(X_test, y_test)
+    # Save the model
+    dump(classifier, 'trained_model.joblib')
+
+    score = classifier.score(X_test, y_test)
 
     print(f'The accuracy of the classifier is {score*100:.2f}%')
 
 if __name__ == '__main__':
     main()
-
